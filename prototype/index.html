@@ -1,0 +1,175 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>LEGACY — Tech Prototype (Ball Physics + Player Controller)</title>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body { background:#0a0f1a; color:#e8ecf4; font-family:'Segoe UI',system-ui,sans-serif; display:flex; flex-direction:column; align-items:center; min-height:100vh; padding:16px; }
+  h1 { font-size:22px; letter-spacing:2px; margin:8px 0 2px; }
+  h1 span { color:#4ade80; }
+  .sub { color:#8b95b0; font-size:13px; margin-bottom:12px; text-align:center; }
+  #wrap { position:relative; width:min(960px,96vw); }
+  canvas { width:100%; border-radius:12px; box-shadow:0 20px 60px rgba(0,0,0,.6); display:block; background:#1a7a3a; }
+  #hud { display:flex; justify-content:space-between; align-items:center; width:min(960px,96vw); margin:10px 0; gap:8px; flex-wrap:wrap; }
+  .pill { background:#151d30; border:1px solid #26314d; border-radius:999px; padding:6px 14px; font-size:14px; font-weight:600; }
+  .pill b { color:#4ade80; }
+  button { background:#22c55e; color:#052e16; border:none; border-radius:8px; padding:8px 16px; font-weight:700; cursor:pointer; font-size:14px; }
+  button:hover { background:#4ade80; }
+  .controls { width:min(960px,96vw); background:#111827; border:1px solid #1f2a44; border-radius:12px; padding:12px 16px; font-size:13px; line-height:1.7; color:#aab3cc; margin-top:10px; }
+  .controls kbd { background:#1f2a44; border-radius:4px; padding:1px 6px; font-family:monospace; color:#fff; font-size:12px; }
+  #msg { position:absolute; top:42%; left:50%; transform:translate(-50%,-50%); font-size:42px; font-weight:900; letter-spacing:2px; text-shadow:0 4px 20px rgba(0,0,0,.7); pointer-events:none; opacity:0; transition:opacity .3s; }
+  .note { color:#5b6a8a; font-size:12px; margin-top:10px; text-align:center; max-width:960px; }
+</style>
+</head>
+<body>
+<h1>LEGACY <span>— TECH PROTOTYPE</span></h1>
+<div class="sub">Ball Physics + Player Controller • Vertical Slice test • Same logic as Unity C# scripts</div>
+
+<div id="hud">
+  <div class="pill">YOU <b id="scoreL">0</b> — <b id="scoreR">0</b> CPU</div>
+  <div class="pill">⏱ <b id="timer">3:00</b></div>
+  <div class="pill">Difficulty: <b>Pro</b></div>
+  <button id="restart">↺ Restart Match</button>
+</div>
+
+<div id="wrap">
+  <canvas id="game" width="960" height="600"></canvas>
+  <div id="msg"></div>
+</div>
+
+<div class="controls">
+  <b style="color:#fff">Controls:</b>
+  <kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> / Arrow Keys — Move &nbsp;•&nbsp;
+  <kbd>Shift</kbd> — Sprint &nbsp;•&nbsp;
+  <kbd>Space</kbd> — Kick / Shoot (aim with movement direction) &nbsp;•&nbsp;
+  <kbd>R</kbd> — Reset ball<br>
+  <b style="color:#fff">Goal:</b> Score in the right goal. CPU scores in the left. First to most goals in 3 minutes wins. Ball has real friction, bounce &amp; spin — just like the Unity prototype.
+</div>
+<p class="note">This web build mirrors <code>Assets/Scripts/Match/</code> (PlayerController.cs, BallPhysics.cs, GameManager.cs). Open the Unity project in Unity 6 to run the 3D version on Steam.</p>
+
+<script>
+const cvs = document.getElementById('game');
+const ctx = cvs.getContext('2d');
+const W = cvs.width, H = cvs.height;
+const pitch = { x: 40, y: 40, w: W-80, h: H-80 };
+const goalW = 90, goalH = 160;
+const player = { x: 200, y: H/2, r: 16, speed: 3.4, sprint: 5.2, vx:0, vy:0, dirX:1, dirY:0, kickCd:0 };
+const cpu    = { x: W-200, y: H/2, r: 16, speed: 2.9, vx:0, vy:0, think:0 };
+const ball   = { x: W/2, y: H/2, r: 10, vx:0, vy:0, drag: 0.985, bounce: 0.72 };
+let scoreL=0, scoreR=0, timeLeft=180, over=false;
+const keys = {};
+addEventListener('keydown', e=>{ keys[e.key.toLowerCase()]=true; if(e.key===' ') e.preventDefault(); if(e.key.toLowerCase()==='r') resetBall(); });
+addEventListener('keyup', e=>{ keys[e.key.toLowerCase()]=false; });
+function resetBall(){ ball.x=W/2; ball.y=H/2; ball.vx=0; ball.vy=0; }
+function kickoff(){ resetBall(); player.x=200; player.y=H/2; cpu.x=W-200; cpu.y=H/2; }
+function showMsg(t){
+  const m=document.getElementById('msg'); m.textContent=t; m.style.opacity=1;
+  setTimeout(()=>m.style.opacity=0, 1400);
+}
+function kick(ent, dirX, dirY, power){
+  const dx = ball.x-ent.x, dy = ball.y-ent.y;
+  if (Math.hypot(dx,dy) > 42) return;
+  const len = Math.hypot(dirX,dirY)||1;
+  ball.vx = (dirX/len)*power;
+  ball.vy = (dirY/len)*power;
+}
+function update(){
+  if(!over){
+    timeLeft -= 1/60;
+    if(timeLeft<=0){ timeLeft=0; over=true; showMsg(scoreL===scoreR?'FULL TIME — DRAW!':scoreL>scoreR?'YOU WIN!':'CPU WINS'); }
+  }
+  let mx=0, my=0;
+  if(keys['a']||keys['arrowleft']) mx-=1;
+  if(keys['d']||keys['arrowright']) mx+=1;
+  if(keys['w']||keys['arrowup']) my-=1;
+  if(keys['s']||keys['arrowdown']) my+=1;
+  const ml = Math.hypot(mx,my);
+  if(ml>0){ mx/=ml; my/=ml; player.dirX=mx; player.dirY=my; }
+  const spd = (keys['shift']?player.sprint:player.speed);
+  player.vx += (mx*spd - player.vx)*0.25;
+  player.vy += (my*spd - player.vy)*0.25;
+  player.x += player.vx; player.y += player.vy;
+  player.x = Math.max(pitch.x+player.r, Math.min(pitch.x+pitch.w-player.r, player.x));
+  player.y = Math.max(pitch.y+player.r, Math.min(pitch.y+pitch.h-player.r, player.y));
+  player.kickCd -= 1/60;
+  if(keys[' '] && player.kickCd<=0){ kick(player, player.dirX, player.dirY, 11); player.kickCd=0.35; }
+  cpu.think -= 1/60;
+  if(cpu.think<=0){
+    cpu.think = 0.15;
+    const dx = ball.x-cpu.x, dy = ball.y-cpu.y;
+    const d = Math.hypot(dx,dy);
+    if(d>36){ cpu.vx = (dx/d)*cpu.speed; cpu.vy=(dy/d)*cpu.speed; }
+    else {
+      const gx = pitch.x, gy = H/2;
+      const gl = Math.hypot(gx-ball.x, gy-ball.y)||1;
+      ball.vx = ((gx-ball.x)/gl)*9.5; ball.vy=((gy-ball.y)/gl)*9.5;
+      cpu.vx=0; cpu.vy=0;
+    }
+  }
+  cpu.x += cpu.vx; cpu.y += cpu.vy;
+  cpu.x = Math.max(pitch.x+cpu.r, Math.min(pitch.x+pitch.w-cpu.r, cpu.x));
+  cpu.y = Math.max(pitch.y+cpu.r, Math.min(pitch.y+pitch.h-cpu.r, cpu.y));
+  ball.x += ball.vx; ball.y += ball.vy;
+  ball.vx *= ball.drag; ball.vy *= ball.drag;
+  if(Math.hypot(ball.vx,ball.vy)<0.05){ ball.vx=0; ball.vy=0; }
+  const inMouth = ball.y > H/2-goalH/2 && ball.y < H/2+goalH/2;
+  if(ball.x < pitch.x+ball.r && !inMouth){ ball.x=pitch.x+ball.r; ball.vx*=-ball.bounce; }
+  if(ball.x > pitch.x+pitch.w-ball.r && !inMouth){ ball.x=pitch.x+pitch.w-ball.r; ball.vx*=-ball.bounce; }
+  if(ball.y < pitch.y+ball.r){ ball.y=pitch.y+ball.r; ball.vy*=-ball.bounce; }
+  if(ball.y > pitch.y+pitch.h-ball.r){ ball.y=pitch.y+pitch.h-ball.r; ball.vy*=-ball.bounce; }
+  for(const e of [player,cpu]){
+    const dx=ball.x-e.x, dy=ball.y-e.y, d=Math.hypot(dx,dy);
+    if(d < e.r+ball.r && d>0){
+      const push = (e.r+ball.r-d);
+      ball.x += (dx/d)*push; ball.y += (dy/d)*push;
+      ball.vx += (dx/d)*0.6; ball.vy += (dy/d)*0.6;
+    }
+  }
+  if(ball.x < pitch.x-14 && inMouth){ scoreR++; showMsg('CPU GOAL!'); updateHUD(); setTimeout(kickoff,1200); }
+  if(ball.x > pitch.x+pitch.w+14 && inMouth){ scoreL++; showMsg('GOAL! ⚽'); updateHUD(); setTimeout(kickoff,1200); }
+  if(ball.x < pitch.x-14 && !inMouth){ ball.x=pitch.x-14; ball.vx*=-ball.bounce; }
+  if(ball.x > pitch.x+pitch.w+14 && !inMouth){ ball.x=pitch.x+pitch.w+14; ball.vx*=-ball.bounce; }
+}
+function draw(){
+  ctx.fillStyle='#1e8a42'; ctx.fillRect(0,0,W,H);
+  for(let i=0;i<10;i++){ if(i%2===0){ ctx.fillStyle='#1a7a3a'; ctx.fillRect(pitch.x + i*pitch.w/10, pitch.y, pitch.w/10, pitch.h); } }
+  ctx.strokeStyle='rgba(255,255,255,.85)'; ctx.lineWidth=3;
+  ctx.strokeRect(pitch.x,pitch.y,pitch.w,pitch.h);
+  ctx.beginPath(); ctx.moveTo(W/2,pitch.y); ctx.lineTo(W/2,pitch.y+pitch.h); ctx.stroke();
+  ctx.beginPath(); ctx.arc(W/2,H/2,70,0,Math.PI*2); ctx.stroke();
+  ctx.strokeRect(pitch.x, H/2-110, 110, 220);
+  ctx.strokeRect(pitch.x+pitch.w-110, H/2-110, 110, 220);
+  ctx.fillStyle='#fff';
+  ctx.fillRect(pitch.x-14, H/2-goalH/2, 14, goalH);
+  ctx.fillRect(pitch.x+pitch.w, H/2-goalH/2, 14, goalH);
+  ctx.strokeStyle='#e5e7eb'; ctx.lineWidth=2;
+  ctx.strokeRect(pitch.x-14, H/2-goalH/2, 14, goalH);
+  ctx.strokeRect(pitch.x+pitch.w, H/2-goalH/2, 14, goalH);
+  ctx.fillStyle='rgba(0,0,0,.25)'; ctx.beginPath(); ctx.ellipse(ball.x+3,ball.y+5,ball.r,ball.r*0.5,0,0,Math.PI*2); ctx.fill();
+  ctx.fillStyle='#fff'; ctx.beginPath(); ctx.arc(ball.x,ball.y,ball.r,0,Math.PI*2); ctx.fill();
+  ctx.fillStyle='#111'; ctx.beginPath(); ctx.arc(ball.x,ball.y,4,0,Math.PI*2); ctx.fill();
+  drawPlayer(player,'#2563eb','YOU');
+  drawPlayer(cpu,'#dc2626','CPU');
+}
+function drawPlayer(e,color,label){
+  ctx.fillStyle='rgba(0,0,0,.3)'; ctx.beginPath(); ctx.ellipse(e.x+3,e.y+6,e.r,e.r*0.5,0,0,Math.PI*2); ctx.fill();
+  ctx.fillStyle=color; ctx.beginPath(); ctx.arc(e.x,e.y,e.r,0,Math.PI*2); ctx.fill();
+  ctx.strokeStyle='#fff'; ctx.lineWidth=2; ctx.stroke();
+  ctx.fillStyle='#fff'; ctx.font='bold 9px sans-serif'; ctx.textAlign='center'; ctx.fillText(label,e.x,e.y+3);
+}
+function updateHUD(){
+  document.getElementById('scoreL').textContent=scoreL;
+  document.getElementById('scoreR').textContent=scoreR;
+}
+setInterval(()=>{
+  const m=Math.floor(timeLeft/60), s=Math.floor(timeLeft%60);
+  document.getElementById('timer').textContent=m+':'+String(s).padStart(2,'0');
+},250);
+document.getElementById('restart').onclick=()=>{ scoreL=0;scoreR=0;timeLeft=180;over=false; kickoff(); updateHUD(); showMsg('KICK OFF!'); };
+function loop(){ update(); draw(); requestAnimationFrame(loop); }
+kickoff(); loop();
+</script>
+</body>
+</html>
